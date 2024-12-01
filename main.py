@@ -32,6 +32,9 @@ def build_engine(onnx_file_path):
                     print(parser.get_error(error))
                 return None
 
+        # レイヤ情報の出力
+        print_layer_info(network)
+
         # ビルドエンジン
         return builder.build_serialized_network(network, config)
 
@@ -78,6 +81,12 @@ def do_inference(context, bindings, inputs, outputs, stream):
 
     return [out['host'] for out in outputs]
 
+def print_layer_info(network):
+    print("TensorRT Network Layer Information:")
+    for i in range(network.num_layers):
+        layer = network.get_layer(i)
+        print(f"Layer {i}: {layer.name}, type: {layer.type}")
+
 # エンジンのビルド
 serialized_engine = build_engine("vit.onnx")
 
@@ -109,4 +118,3 @@ with engine.create_execution_context() as context:
     # 推論の実行と出力表示
     output = do_inference(context, bindings, inputs, outputs, stream)
     print("Inference output:", output)
-
