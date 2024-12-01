@@ -5,6 +5,7 @@ import tensorrt as trt
 import numpy as np
 import pycuda.driver as cuda
 import pycuda.autoinit
+import time
 
 # ViTモデルのロード
 model = timm.create_model('vit_base_patch16_224', pretrained=True)
@@ -17,7 +18,10 @@ dummy_input = torch.randn(1, 3, 224, 224)
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
 def build_engine(onnx_file_path):
-    with trt.Builder(TRT_LOGGER) as builder, builder.create_network(1) as network, trt.OnnxParser(network, TRT_LOGGER) as parser:
+    with trt.Builder(TRT_LOGGER) as builder:
+        network = builder.create_network(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+        parser = trt.OnnxParser(network, TRT_LOGGER)
+
         config = builder.create_builder_config()
         config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 1 << 30)  # 1GB
 
@@ -79,6 +83,18 @@ with engine.create_execution_context() as context:
     input_data = np.random.rand(1, 3, 224, 224).astype(np.float32)
     np.copyto(inputs[0]['host'], input_data.ravel())
 
-    # 推論の実行
-    output = do_inference(context, bindings=bindings, inputs=inputs, outputs=outputs, stream=stream)
+    # FPS計測のための推論実行
+    num_iterations = 100
+    start_time = time.time()
+    for _ in range(num_iterations):
+        output = do_inference(context, bindings, inputs, outputs, stream)
+    end_time = time.time()
+
+    # FPS計算
+    total_time = end_time - start_time
+    fps = num_iterations / total_time
+    print(f"FPS: {fps:.2f}")
+
+    # 推論の実行と出力表示
+    output = do_inference(context, bindings, inputs, outputs, stream)
     print("Inference output:", output)
