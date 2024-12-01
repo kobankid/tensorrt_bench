@@ -56,15 +56,26 @@ def allocate_buffers(engine):
     return inputs, outputs, bindings, stream
 
 def do_inference(context, bindings, inputs, outputs, stream):
+    start_event = cuda.Event()
+    end_event = cuda.Event()
+
     for inp in inputs:
         context.set_tensor_address(inp['name'], inp['device'])
         cuda.memcpy_htod_async(inp['device'], inp['host'], stream)
     for out in outputs:
         context.set_tensor_address(out['name'], out['device'])
+
+    start_event.record(stream)
     context.execute_async_v3(stream_handle=stream.handle)
+    end_event.record(stream)
+
     for out in outputs:
         cuda.memcpy_dtoh_async(out['host'], out['device'], stream)
     stream.synchronize()
+
+    elapsed_time = start_event.time_since(end_event)
+    print(f"Inference time: {elapsed_time} ms")
+
     return [out['host'] for out in outputs]
 
 # エンジンのビルド
@@ -98,3 +109,4 @@ with engine.create_execution_context() as context:
     # 推論の実行と出力表示
     output = do_inference(context, bindings, inputs, outputs, stream)
     print("Inference output:", output)
+
