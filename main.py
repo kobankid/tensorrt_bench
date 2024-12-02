@@ -109,7 +109,7 @@ def do_inference(context, bindings, inputs, outputs, stream):
         cuda.memcpy_dtoh_async(out['host'], out['device'], stream)
     stream.synchronize()
 
-    elapsed_time = start_event.time_since(end_event)
+    elapsed_time = end_event.time_since(start_event)
     print(f"Inference time: {elapsed_time} ms")
 
     return [out['host'] for out in outputs]
