@@ -6,6 +6,7 @@ import numpy as np
 import pycuda.driver as cuda
 import pycuda.autoinit
 import time
+import os
 
 # ViTモデルのロード
 model = timm.create_model('vit_base_patch16_224', pretrained=True)
@@ -14,10 +15,13 @@ model.eval()
 # ダミー入力の作成
 dummy_input = torch.randn(1, 3, 224, 224)
 
+# ONNX形式でモデルをエクスポート
+torch.onnx.export(model, dummy_input, "vit.onnx", opset_version=19)
+
 # TensorRTのロガー
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
-def build_engine(onnx_file_path):
+def build_engine(onnx_file_path, precision):
     with trt.Builder(TRT_LOGGER) as builder:
         network = builder.create_network(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
         parser = trt.OnnxParser(network, TRT_LOGGER)
@@ -35,8 +39,37 @@ def build_engine(onnx_file_path):
         # レイヤ情報の出力
         print_layer_info(network)
 
+        # 量子化の設定
+        if precision == "FP16":
+            config.set_flag(trt.BuilderFlag.FP16)
+        elif precision == "INT8":
+            config.set_flag(trt.BuilderFlag.INT8)
+            # INT8キャリブレーションの設定
+            config.int8_calibrator = MyInt8Calibrator()
+
         # ビルドエンジン
         return builder.build_serialized_network(network, config)
+
+class MyInt8Calibrator(trt.IInt8MinMaxCalibrator):
+    def __init__(self):
+        trt.IInt8MinMaxCalibrator.__init__(self)
+        self.cache_file = "calibration.cache"
+
+    def get_batch_size(self):
+        return 1
+
+    def get_batch(self, names):
+        return None
+
+    def read_calibration_cache(self):
+        if os.path.exists(self.cache_file):
+            with open(self.cache_file, "rb") as f:
+                return f.read()
+        return None
+
+    def write_calibration_cache(self, cache):
+        with open(self.cache_file, "wb") as f:
+            f.write(cache)
 
 def allocate_buffers(engine):
     inputs = []
@@ -88,7 +121,8 @@ def print_layer_info(network):
         print(f"Layer {i}: {layer.name}, type: {layer.type}")
 
 # エンジンのビルド
-serialized_engine = build_engine("vit.onnx")
+precision = "FP16"  # "FP32", "FP16", or "INT8"
+serialized_engine = build_engine("vit.onnx", precision)
 
 # デシリアライズしてエンジンを作成
 runtime = trt.Runtime(TRT_LOGGER)
